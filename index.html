@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en" >
+<head>
+  <meta charset="UTF-8">
+  <title>8.2</title>
+  
+
+</head>
+<body>
+<!-- partial:index.partial.html -->
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Kocaeli Acil Durum Haritası</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+  <style>
+    body, html {
+      margin: 0; padding: 0; height: 100%;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+    }
+    #map {
+      position: absolute;
+      top: 50px; /* panel yüksekliği kadar boşluk */
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: calc(100% - 50px);
+      width: 100%;
+      transition: top 0.3s ease;
+    }
+    #panel {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      background: #f0f0f0;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+      z-index: 1000;
+      font-size: 14px;
+      user-select: none;
+    }
+    #panel-header {
+      height: 50px;
+      line-height: 50px;
+      padding: 0 15px;
+      cursor: pointer;
+      font-weight: bold;
+      background-color: #0077b6;
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #panel-content {
+      max-height: 300px;
+      overflow-y: auto;
+      padding: 10px 15px;
+      display: none; /* başlangıçta kapalı */
+      background: #f0f0f0;
+    }
+    button {
+      margin: 3px 5px 3px 0;
+      padding: 6px 10px;
+      cursor: pointer;
+      border: none;
+      border-radius: 4px;
+      font-size: 0.9em;
+    }
+    button.route-btn {
+      background-color: #0077b6;
+      color: white;
+    }
+    button.route-btn:hover:not(:disabled) {
+      background-color: #005f86;
+    }
+    button.google-maps-btn {
+      background-color: #db4437;
+      color: white;
+    }
+    button.google-maps-btn:hover:not(:disabled) {
+      background-color: #a33224;
+    }
+    button:disabled {
+      background-color: #999;
+      cursor: not-allowed;
+    }
+    #nearest-fire-stations ul {
+      list-style: none;
+      padding-left: 0;
+      margin: 0;
+    }
+    #nearest-fire-stations li {
+      margin-bottom: 8px;
+    }
+    /* Açılır/kapanır ok simgesi */
+    #toggle-icon {
+      transition: transform 0.3s ease;
+    }
+    #panel.open #toggle-icon {
+      transform: rotate(180deg);
+    }
+  </style>
+</head>
+<body>
+  <div id="panel">
+    <div id="panel-header" aria-expanded="false" role="button" tabindex="0">
+      Kocaeli Acil Durum Haritası
+      <span id="toggle-icon">▼</span>
+    </div>
+    <div id="panel-content" aria-hidden="true">
+      <button id="select-emergency-location">Acil Durum Konumu Seç</button>
+      <button id="clear-map">Haritayı Temizle</button>
+      <div id="nearest-fire-stations"></div>
+    </div>
+  </div>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+
+  <script>
+    const panel = document.getElementById('panel');
+    const panelHeader = document.getElementById('panel-header');
+    const panelContent = document.getElementById('panel-content');
+    const toggleIcon = document.getElementById('toggle-icon');
+    const mapDiv = document.getElementById('map');
+
+    // Panel aç/kapa fonksiyonu
+    function togglePanel() {
+      const isOpen = panelContent.style.display === 'block';
+      if (isOpen) {
+        panelContent.style.display = 'none';
+        panel.setAttribute('aria-expanded', 'false');
+        panelContent.setAttribute('aria-hidden', 'true');
+        panel.classList.remove('open');
+        mapDiv.style.top = '50px';
+      } else {
+        panelContent.style.display = 'block';
+        panel.setAttribute('aria-expanded', 'true');
+        panelContent.setAttribute('aria-hidden', 'false');
+        panel.classList.add('open');
+        mapDiv.style.top = (50 + panelContent.offsetHeight) + 'px';
+      }
+    }
+
+    panelHeader.addEventListener('click', togglePanel);
+    panelHeader.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        togglePanel();
+      }
+    });
+
+    // Başlangıçta panel açık olsun
+    togglePanel();
+
+    // Harita ve diğer kodlar aşağıda
+
+    const map = L.map('map').setView([40.7632, 29.9417], 10);
+    const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    const fireStations = [
+      { name: "Kocaeli İtfaiye Daire Başkanlığı", lat: 40.7527883823488, lng: 29.94870700000473 },
+      { name: "Bağçeşme İtfaiye Müfrezesi", lat: 40.770332629084606, lng: 29.920907281617616 },
+      { name: "Başiskele İtfaiye Grubu", lat: 40.71585622076677, lng: 29.926967848725035 },
+      { name: "Beylikbağı İtfaiye Grubu", lat: 40.796415320242986, lng: 29.398407325139964 },
+      { name: "Çayırova İtfaiye Grubu", lat: 40.83557827290454, lng: 29.40741683929078 },
+      { name: "Darıca İtfaiye Grubu", lat: 40.77513098441023, lng: 29.37851700000175 },
+      { name: "Derince İtfaiye Grubu", lat: 40.75795226598465, lng: 29.815445695527497 },
+      { name: "Dilovası İtfaiye Grubu", lat: 40.79236015326241, lng: 29.55091324784757 },
+      { name: "Gebze İtfaiye Grubu", lat: 40.8002982930493, lng: 29.448318356891683 },
+      { name: "Gölcük İtfaiye Grubu", lat: 40.709335933620864, lng: 29.844819635588728 },
+      { name: "Hereke İtfaiye Müfrezesi", lat: 40.78549794942241, lng: 29.62095433145458 },
+      { name: "İzmit İtfaiye Grubu", lat: 40.758416626687364, lng: 29.943148600699764 },
+      { name: "Kandıra İtfaiye Grubu", lat: 41.06641071002835, lng: 30.135770682274742 },
+      { name: "Karamürsel İtfaiye Grubu", lat: 40.69260029017087, lng: 29.626536616862168 },
+      { name: "Kartepe İtfaiye Grubu", lat: 40.749846191584034, lng: 30.05449958101028 },
+      { name: "Körfez İtfaiye Grubu", lat: 40.766687905687284, lng: 29.77462627116556 },
+      { name: "Yahya Kaptan İtfaiye Grubu", lat: 40.775836232770786, lng: 29.97090855093244 },
+      { name: "Yalakdere İtfaiye Grubu", lat: 40.60849197692562, lng: 29.56255411466587 },
+      { name: "Pendik İtfaiye İstasyonu", lat: 40.8865708905159, lng: 29.236895072851347 },
+      { name: "Tuzla Yayla İtfaiye İstasyonu", lat: 40.81515607699078, lng: 29.311728487560156 },
+      { name: "Tuzla OSB İtfaiye İstasyonu", lat: 40.87802043515775, lng: 29.399112828196223 },
+      { name: "Sancaktepe İtfaiye İstasyonu", lat: 41.01490181452095, lng: 29.244463308358025 },
+      { name: "Sultanbeyli İtfaiye", lat: 40.9694479836146, lng: 29.266658173830216 },
+      { name: "Maltepe İtfaiye İstasyonu", lat: 40.92968437772491, lng: 29.145203049852434 },
+      { name: "Pendik/Yenişehir İtfaiye İstasyonu", lat: 40.940554316046814, lng: 29.30544665007647 },
+      { name: "Dörtyol İtfaiye Sakarya", lat: 40.71723493467636, lng: 30.383764226495686 },
+      { name: "Sakarya B.B. İtfaiye Daire Başkanlığı", lat: 40.76579486853518, lng: 30.387437149823157 },
+      { name: "Sakarya B.B. İtfaiye", lat: 40.7659759124932, lng: 30.38838987057192 },
+      { name: "Adapazarı İtfaiye", lat: 40.85245171870465, lng: 30.32935775376297 },
+      { name: "Sapanca İtfaiye Müdürlüğü", lat: 40.68754811615033, lng: 30.26926383706727 },
+      { name: "Karasu İtfaiye Müdürlüğü", lat: 41.09923534462324, lng: 30.671303903012667 },
+      { name: "Bilecik/Osmaneli İtfaiye Müdürlüğü", lat: 40.35936704904972, lng: 30.01664334547641 },
+      { name: "Bilecik/Gölpazarı İtfaiye", lat: 40.27649031524493, lng: 30.314894840132958 },
+      { name: "Bursa/İznik İtfaiye", lat: 40.426658266566605, lng: 29.72988123777766 },
+      { name: "Bursa B.B. İtfaiye", lat: 40.482904728065186, lng: 29.307520967882056 },
+      { name: "Gemlik İtfaiye", lat: 40.42857793889089, lng: 29.169774378511683 },
+      { name: "Yalova/Altınova İtfaiye", lat: 40.698311494908786, lng: 29.50933688908998 },
+      { name: "Çiftlikköy/Yalova İtfaiye", lat: 40.661584595786074, lng: 29.330321142864424 },
+      { name: "Yalova İtfaiye Müdürlüğü", lat: 40.652977613562264, lng: 29.285954451919547 }
+    ];
+
+
+    fireStations.forEach(station => {
+      L.marker([station.lat, station.lng]).addTo(map)
+        .bindPopup(station.name);
+    });
+
+    let selectedPoint;
+    let routingControl;
+
+    document.getElementById("select-emergency-location").addEventListener("click", () => {
+      map.on('click', function onMapClick(e) {
+        if (selectedPoint) {
+          map.removeLayer(selectedPoint);
+        }
+        selectedPoint = L.marker(e.latlng).addTo(map);
+        const lat = e.latlng.lat;
+        const lng = e.latlng.lng;
+        calculateDistances(lat, lng);
+        map.off('click', onMapClick); // Tıklamayı kaldır
+      });
+    });
+
+    function calculateDistances(lat, lng) {
+      const distances = fireStations.map(station => {
+        const distance = getDistance(lat, lng, station.lat, station.lng);
+        return { ...station, distance };
+      });
+
+      distances.sort((a, b) => a.distance - b.distance); // Mesafeye göre sırala
+      const nearestStations = distances.slice(0, 5); // En yakın 5 itfaiye
+      displayNearestStations(nearestStations, lat, lng);
+
+      // Rota çiz (ilk en yakın için)
+      drawRoute(lat, lng, nearestStations[0].lat, nearestStations[0].lng);
+    }
+
+    function getDistance(lat1, lng1, lat2, lng2) {
+      const R = 6371; // Dünya'nın yarıçapı (km)
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c; // km
+    }
+
+    function displayNearestStations(nearestStations, emergencyLat, emergencyLng) {
+      const nearestStationsDiv = document.getElementById('nearest-fire-stations');
+      nearestStationsDiv.innerHTML = '<h3>En Yakın 5 İtfaiye:</h3><ul>';
+      nearestStations.forEach((station, index) => {
+        nearestStationsDiv.innerHTML += 
+          `<li>
+            ${station.name} - ${station.distance.toFixed(2)} km
+            <button class="route-btn" data-lat="${station.lat}" data-lng="${station.lng}" title="Haritada Rota Çiz">Rota</button>
+            <button class="google-maps-btn" data-lat="${station.lat}" data-lng="${station.lng}" title="Google Haritalar'da Aç">Google Haritalar</button>
+          </li>`;
+      });
+      nearestStationsDiv.innerHTML += '</ul>';
+
+      // Butonlara olay dinleyici ekle
+      document.querySelectorAll('.route-btn').forEach(button => {
+        button.addEventListener('click', () => {
+          if (!selectedPoint) {
+            alert('Lütfen önce acil durum konumu seçin.');
+            return;
+          }
+          const lat = parseFloat(button.getAttribute('data-lat'));
+          const lng = parseFloat(button.getAttribute('data-lng'));
+          drawRoute(selectedPoint.getLatLng().lat, selectedPoint.getLatLng().lng, lat, lng);
+        });
+      });
+
+      document.querySelectorAll('.google-maps-btn').forEach(button => {
+        button.addEventListener('click', () => {
+          if (!selectedPoint) {
+            alert('Lütfen önce acil durum konumu seçin.');
+            return;
+          }
+          const destLat = button.getAttribute('data-lat');
+          const destLng = button.getAttribute('data-lng');
+          const startLat = selectedPoint.getLatLng().lat;
+          const startLng = selectedPoint.getLatLng().lng;
+
+          // Google Haritalar rotası URL'si
+          const url = `https://www.google.com/maps/dir/?api=1&origin=${startLat},${startLng}&destination=${destLat},${destLng}&travelmode=driving`;
+          window.open(url, '_blank');
+        });
+      });
+    }
+
+    function drawRoute(startLat, startLng, endLat, endLng) {
+      if (routingControl) {
+        map.removeControl(routingControl);
+      }
+
+      routingControl = L.Routing.control({
+        waypoints: [
+          L.latLng(startLat, startLng),
+          L.latLng(endLat, endLng)
+        ],
+        routeWhileDragging: true,
+        createMarker: () => null,
+      }).addTo(map);
+    }
+
+    document.getElementById("clear-map").addEventListener("click", () => {
+      if (selectedPoint) {
+        map.removeLayer(selectedPoint);
+        selectedPoint = null;
+      }
+      if (routingControl) {
+        map.removeControl(routingControl);
+        routingControl = null;
+      }
+      document.getElementById('nearest-fire-stations').innerHTML = '';
+    });
+  </script>
+</body>
+</html>
+<!-- partial -->
+  
+</body>
+</html>
